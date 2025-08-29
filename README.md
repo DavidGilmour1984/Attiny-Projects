@@ -1,6 +1,6 @@
 # Attiny-Projects
 Attiny Projects
-Got it — I couldn’t open the YouTube page directly in my browser tool (YouTube sometimes blocks embedded viewers), but I found the exact video and cross-checked the process against Arduino’s docs and ATTinyCore notes. Here’s a clean, step-by-step guide you can follow to program an ATtiny45/85 with an Arduino Uno exactly like in that video.
+https://www.youtube.com/watch?v=-mV6ETGLIg8
 
 What you need
 

@@ -60,9 +60,6 @@ void setup() {
 }
 
 void loop() {
-  bmp.measure();
-  float alt = bmp.getRelativeAltitudeM();
-
   // ---- Pre-launch ----
   if (!launched) {
     static unsigned long lastBeat = 0;
@@ -71,11 +68,18 @@ void loop() {
       lastBeat = millis();
     }
 
-    // Launch detect at +5 m
-    if (alt > 5) {
-      launched = true;
-      launchTime = millis();
-      maxAltitude = alt;
+    // Take a measurement once per second
+    static unsigned long lastCheck = 0;
+    if (millis() - lastCheck >= 1000) {
+      bmp.measure();
+      float alt = bmp.getRelativeAltitudeM();
+
+      if (alt > 5) {
+        launched = true;
+        launchTime = millis();
+        maxAltitude = alt;
+      }
+      lastCheck = millis();
     }
     return;
   }
@@ -84,6 +88,8 @@ void loop() {
   if (launched && millis() - launchTime <= 6000) {
     static unsigned long lastSample = 0;
     if (millis() - lastSample >= 50) {
+      bmp.measure();
+      float alt = bmp.getRelativeAltitudeM();
       if (alt > maxAltitude) maxAltitude = alt;
       lastSample = millis();
     }

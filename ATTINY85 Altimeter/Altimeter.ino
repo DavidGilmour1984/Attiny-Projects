@@ -1,24 +1,25 @@
-#include <ATTINY85BMP280.h>
-
-// ==== LED pins (ATtiny85 Arduino numbering) ====
-#define LED_ONES     1   // PB1 = physical pin 6
-#define LED_TENS     3   // PB3 = physical pin 2
-#define LED_HUNDREDS 4   // PB4 = physical pin 3
+// set clock speed to 1mhz
+#include "ATTINY85BMP280.h"
 
 ATTINY85BMP280 bmp;
 
-float baselineAlt = 0.0;
-float maxAlt = 0.0;
+// ===== LED pins (Arduino numbering, not physical pins) =====
+#define LED_ONES     1   // physical pin 6 (PB1)
+#define LED_TENS     3   // physical pin 2 (PB3)
+#define LED_HUNDREDS 4   // physical pin 3 (PB4)
 
-enum State { PRELAUNCH, FLIGHT, POSTFLIGHT };
-State state = PRELAUNCH;
-
+// ===== State tracking =====
+bool launched = false;
 unsigned long launchTime = 0;
-unsigned long lastFlashTime = 0;
-const unsigned long flightDuration = 6000;   // 6 s logging window
-const unsigned long flashInterval = 10000;  // flash max every 10 s after flight
+float maxAltitude = 0;
 
-// ====== LED helpers ======
+// ===== Functions =====
+void heartbeat() {
+  digitalWrite(LED_ONES, HIGH); delay(100); digitalWrite(LED_ONES, LOW);
+  digitalWrite(LED_TENS, HIGH); delay(100); digitalWrite(LED_TENS, LOW);
+  digitalWrite(LED_HUNDREDS, HIGH); delay(100); digitalWrite(LED_HUNDREDS, LOW);
+}
+
 void flashDigit(int pin, int count) {
   for (int i = 0; i < count; i++) {
     digitalWrite(pin, HIGH);
@@ -26,7 +27,7 @@ void flashDigit(int pin, int count) {
     digitalWrite(pin, LOW);
     delay(200);
   }
-  delay(500); // pause between digits
+  delay(600); // spacing between digits
 }
 
 void flashAltitude(int altitude) {
@@ -35,11 +36,10 @@ void flashAltitude(int altitude) {
   int ones     = altitude % 10;
 
   if (hundreds > 0) flashDigit(LED_HUNDREDS, hundreds);
-  if (tens > 0 || hundreds > 0) flashDigit(LED_TENS, tens);
+  if (tens > 0)     flashDigit(LED_TENS, tens);
   flashDigit(LED_ONES, ones);
 }
 
-// ====== Setup ======
 void setup() {
   pinMode(LED_ONES, OUTPUT);
   pinMode(LED_TENS, OUTPUT);
@@ -47,52 +47,53 @@ void setup() {
 
   bmp.begin();
 
-  // Baseline averaging
-  float sum = 0.0;
+  // Discard first few samples and average baseline
+  long sum = 0;
   for (int i = 0; i < 20; i++) {
     bmp.measure();
-    sum += bmp.getAltitudeM();
+    sum += bmp.getPressurePa();
     delay(50);
   }
-  baselineAlt = sum / 20.0;
-  maxAlt = 0.0;
+  bmp.setBaselinePressure(sum / 20);
+
+  heartbeat(); // quick heartbeat at boot
 }
 
-// ====== Loop ======
 void loop() {
   bmp.measure();
-  float alt = bmp.getAltitudeM() - baselineAlt;
-  if (alt < 0) alt = 0; // clamp
+  float alt = bmp.getRelativeAltitudeM();
 
-  switch (state) {
-    case PRELAUNCH:
-      // Heartbeat on ones LED every 2s
-      if (millis() % 2000 < 100) digitalWrite(LED_ONES, HIGH);
-      else digitalWrite(LED_ONES, LOW);
+  // ---- Pre-launch ----
+  if (!launched) {
+    static unsigned long lastBeat = 0;
+    if (millis() - lastBeat > 2000) {   // heartbeat every 2s
+      heartbeat();
+      lastBeat = millis();
+    }
 
-      if (alt > 5.0) {
-        state = FLIGHT;
-        launchTime = millis();
-      }
-      break;
+    // Launch detect at +5 m
+    if (alt > 5) {
+      launched = true;
+      launchTime = millis();
+      maxAltitude = alt;
+    }
+    return;
+  }
 
-    case FLIGHT:
-      if (alt > maxAlt) maxAlt = alt;
+  // ---- In flight: sample at 20Hz for 6s ----
+  if (launched && millis() - launchTime <= 6000) {
+    static unsigned long lastSample = 0;
+    if (millis() - lastSample >= 50) {
+      if (alt > maxAltitude) maxAltitude = alt;
+      lastSample = millis();
+    }
+    return;
+  }
 
-      if (millis() - launchTime > flightDuration) {
-        state = POSTFLIGHT;
-        digitalWrite(LED_ONES, LOW);
-        digitalWrite(LED_TENS, LOW);
-        digitalWrite(LED_HUNDREDS, LOW);
-        lastFlashTime = millis();
-      }
-      break;
-
-    case POSTFLIGHT:
-      if (millis() - lastFlashTime >= flashInterval) {
-        flashAltitude((int)maxAlt);
-        lastFlashTime = millis();
-      }
-      break;
+  // ---- Landed: flash altitude every 10s ----
+  static unsigned long lastFlash = 0;
+  if (millis() - lastFlash > 10000) {
+    flashAltitude((int)maxAltitude);
+    lastFlash = millis();
   }
 }

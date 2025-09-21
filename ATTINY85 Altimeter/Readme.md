@@ -1,86 +1,105 @@
-# ATtiny85 + BMP280 Rocket Altitude Logger (LED Flash Output)
+ATtiny85 + BMP280 Rocket Altitude Logger (LED Flash Output)
 
-This project is a **minimal rocket flight computer** built on an **ATtiny85** with a **BMP280 barometric sensor**.  
-It detects launch, logs altitude for 60 seconds, and then flashes the **maximum altitude** using onboard LEDs.  
+This project is a minimal rocket flight computer built on an ATtiny85 with a BMP280 barometric sensor.
+It detects launch, logs altitude for a short flight window, and then flashes the maximum altitude using onboard LEDs.
 
----
+✨ Features
 
-## ✨ Features
+ATtiny85 + BMP280 (I²C @ 0x76)
 
-- **ATtiny85** + **BMP280** (I²C @ 0x76)
-- **Launch detection**:
-  - Ignores false triggers for first 5 seconds after power-on
-  - Detects launch when altitude rises >10 m above baseline
-- **Logging**:
-  - Reads altitude at **5 Hz (every 200 ms)**
-  - Tracks maximum altitude for 60 seconds after launch
-- **LED output**:
-  - **Heartbeat**: all LEDs flash every 2 seconds before launch detect  
-  - **Thousands digit**: all LEDs flash together (e.g. 2 flashes = 2000 m)  
-  - **Hundreds / tens / ones digits**: flashed individually on separate pins  
-- **Frozen altitude**: after 60 seconds, max altitude is locked and continuously displayed
+Launch detection
 
----
+Ignores false triggers during startup baseline sampling
 
-## 🔧 Hardware
+Detects launch when altitude rises > 5–10 m above baseline
 
-- **MCU**: ATtiny85 (running on internal oscillator, no external crystal)
-- **Sensor**: BMP280 barometric pressure/temperature sensor (I²C, addr `0x76`)
-- **LEDs**: 3 × LEDs on output pins
+Logging
 
-| LED  | Pin name | ATtiny85 pin | Physical pin |
-|------|----------|--------------|--------------|
-| Ones | `PB1`    | `1`          | 6            |
-| Tens | `PB3`    | `3`          | 2            |
-| Hundreds | `PB4`| `4`          | 3            |
+Reads altitude at 20 Hz (every 50 ms) for 6 s after launch
 
-Thousands are indicated by **all LEDs flashing at once**.
+Tracks maximum altitude during flight
 
----
+LED output
 
-## 📊 Example Output
+Heartbeat: LEDs blink in sequence (ones → tens → hundreds) every 2 s before launch
 
-If the frozen max altitude is **2345 m**:
+Thousands digit: hundreds and ones LEDs flash together (e.g. 2 flashes = 2000 m)
 
-1. **Thousands (2)** → all LEDs flash twice  
-2. **Hundreds (3)** → hundreds LED flashes 3 times  
-3. **Tens (4)** → tens LED flashes 4 times  
-4. **Ones (5)** → ones LED flashes 5 times  
-5. Sequence repeats forever  
+Hundreds / tens / ones digits: flashed individually on their dedicated pins
 
----
+Frozen altitude: after flight, the max altitude is locked and flashed every 10 s
 
-## 🚀 Usage
+🔧 Hardware
 
-1. Flash the code to an **ATtiny85** using Arduino IDE (select *ATtiny85, 8 MHz internal*).
-2. Power the board + BMP280.
-3. Before launch → heartbeat flashes every 2 seconds.
-4. On launch detection → logging begins (LEDs stay off).
-5. After 60 seconds → maximum altitude is frozen and flashed repeatedly.
+MCU: ATtiny85 (running on internal oscillator, 1 MHz or 8 MHz, no external crystal)
 
----
+Sensor: BMP280 barometric pressure/temperature sensor (I²C, addr 0x76)
 
-## 📝 Code Overview
+LEDs: 3 × LEDs on output pins
 
-- **`setup()`**  
-  - Initializes I²C, BMP280, and LEDs.  
-  - Reads baseline altitude at power-on.  
+Digit	Pin name	Arduino pin	ATtiny85 physical pin
+Ones	PB1	1	6
+Tens	PB3	3	2
+Hundreds	PB4	4	3
 
-- **`loop()`**  
-  - Reads altitude every 200 ms.  
-  - Detects launch only after 5 s uptime and >10 m altitude change.  
-  - Tracks maximum altitude for 60 s, then freezes value.  
-  - Handles heartbeat and altitude flashing via non-blocking state machine.  
+Thousands are indicated by hundreds + ones LEDs flashing at the same time.
 
----
+📊 Example Output
 
-## ⚠️ Notes
+If the frozen max altitude is 2345 m:
 
-- Code assumes **sea-level reference pressure = 101325 Pa**.  
-- Power draw is suitable for coin cell, but consider capacity for long logging.  
-- Launch detect threshold (10 m) and logging duration (60 s) can be adjusted in code.  
+Thousands (2) → hundreds + ones LEDs flash twice together
 
----
+Hundreds (3) → hundreds LED flashes 3 times
 
-## 📂 Repository Layout
+Tens (4) → tens LED flashes 4 times
 
+Ones (5) → ones LED flashes 5 times
+
+Sequence repeats after 10 s
+
+🚀 Usage
+
+Flash the code to an ATtiny85 using Arduino IDE (select ATtiny85, internal 1 MHz or 8 MHz, BOD disabled).
+
+Power the board + BMP280.
+
+Before launch → sequential heartbeat (1s → 10s → 100s LEDs blink) every 2 s.
+
+On launch detection → logging begins (LEDs stay off).
+
+After ~6 s → maximum altitude is frozen and flashed every 10 s.
+
+📝 Code Overview
+
+setup()
+
+Initializes I²C, BMP280, and LEDs.
+
+Averages multiple samples to establish a baseline pressure.
+
+loop()
+
+Pre-launch: heartbeat every 2 s, altitude checked once per second.
+
+In-flight: samples at 20 Hz for 6 s, updates max altitude.
+
+Post-flight: flashes altitude digits every 10 s using custom LED code.
+
+⚠️ Notes
+
+Code assumes BMP280 relative altitude mode (baseline = pad height).
+
+Launch detect threshold (default: 5 m) and flight logging duration (6 s) can be adjusted in code.
+
+For longer runtime on coin cells, use sleep modes and disable BOD in fuses.
+
+Thousands digit currently limited to a single place (0–9000 m).
+
+📂 Repository Layout
+
+RocketLogger.ino → main sketch
+
+ATTINY85BMP280.h/.cpp → lightweight BMP280 driver for ATtiny85
+
+README.md → this document

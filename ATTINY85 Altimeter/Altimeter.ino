@@ -31,14 +31,29 @@ void flashDigit(int pin, int count) {
 }
 
 void flashAltitude(int altitude) {
-  int hundreds = (altitude / 100) % 10;
-  int tens     = (altitude / 10) % 10;
-  int ones     = altitude % 10;
+  int thousands = (altitude / 1000) % 10;
+  int hundreds  = (altitude / 100) % 10;
+  int tens      = (altitude / 10) % 10;
+  int ones      = altitude % 10;
+
+  // Thousands → flash hundreds + ones at the same time
+  if (thousands > 0) {
+    for (int i = 0; i < thousands; i++) {
+      digitalWrite(LED_HUNDREDS, HIGH);
+      digitalWrite(LED_ONES, HIGH);
+      delay(200);
+      digitalWrite(LED_HUNDREDS, LOW);
+      digitalWrite(LED_ONES, LOW);
+      delay(200);
+    }
+    delay(600); // spacing between thousands and rest
+  }
 
   if (hundreds > 0) flashDigit(LED_HUNDREDS, hundreds);
   if (tens > 0)     flashDigit(LED_TENS, tens);
   flashDigit(LED_ONES, ones);
 }
+
 
 void setup() {
   pinMode(LED_ONES, OUTPUT);

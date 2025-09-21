@@ -1,4 +1,4 @@
-// set clock speed to 1mhz
+// set clock speed to 1mhz.
 #include "ATTINY85BMP280.h"
 #include <avr/sleep.h>
 #include <avr/wdt.h>

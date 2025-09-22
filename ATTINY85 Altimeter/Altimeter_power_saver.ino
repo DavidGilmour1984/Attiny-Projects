@@ -62,6 +62,23 @@ ISR(WDT_vect) {
   // Just wakes up, nothing else
 }
 
+// ---- Sleep helper (1s chunks) ----
+void sleepSeconds(byte seconds) {
+  for (byte i = 0; i < seconds; i++) {
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+
+    // configure watchdog for 1s timeout
+    WDTCR = (1<<WDCE) | (1<<WDE);
+    WDTCR = (1<<WDP2) | (1<<WDP1); // 1s prescaler
+    WDTCR |= (1<<WDIE);            // enable interrupt
+
+    sleep_cpu();   // go to sleep
+    sleep_disable();
+    wdt_disable();
+  }
+}
+
 void setup() {
   pinMode(LED_ONES, OUTPUT);
   pinMode(LED_TENS, OUTPUT);
@@ -84,25 +101,24 @@ void setup() {
 void loop() {
   // ---- Pre-launch ----
   if (!launched) {
-    static unsigned long lastBeat = 0;
-    if (millis() - lastBeat > 2000) {   // heartbeat every 2s
+    static unsigned long beatCounter = 0;
+
+    bmp.measure();
+    float alt = bmp.getRelativeAltitudeM();
+
+    // heartbeat every ~2s
+    if (beatCounter % 2 == 0) {
       heartbeat();
-      lastBeat = millis();
     }
 
-    // Take a measurement once per second
-    static unsigned long lastCheck = 0;
-    if (millis() - lastCheck >= 1000) {
-      bmp.measure();
-      float alt = bmp.getRelativeAltitudeM();
-
-      if (alt > 5) {
-        launched = true;
-        launchTime = millis();
-        maxAltitude = alt;
-      }
-      lastCheck = millis();
+    if (alt > 5) {
+      launched = true;
+      launchTime = millis();
+      maxAltitude = alt;
     }
+
+    beatCounter++;
+    sleepSeconds(1);  // sleep between pre-launch samples
     return;
   }
 
@@ -120,19 +136,5 @@ void loop() {
 
   // ---- Landed: flash altitude then sleep for ~10s ----
   flashAltitude((int)maxAltitude);
-
-  // go to sleep ~10 seconds using watchdog (10 × 1s)
-  for (int i = 0; i < 10; i++) {
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    sleep_enable();
-
-    // configure watchdog for 1s timeout
-    WDTCR = (1<<WDCE) | (1<<WDE);
-    WDTCR = (1<<WDP2) | (1<<WDP1); // 1s prescaler
-    WDTCR |= (1<<WDIE);            // enable interrupt
-
-    sleep_cpu();   // go to sleep
-    sleep_disable();
-    wdt_disable();
-  }
+  sleepSeconds(10);
 }

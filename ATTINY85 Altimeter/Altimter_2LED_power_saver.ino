@@ -1,12 +1,44 @@
-// ===== ATtiny85 + BMP280 Rocket Logger =====
-// Flashes out max altitude with digit+separator scheme
-// Zero digits = long flash on LED_DIGIT
-// Separator = LED_SEP, only between digits (not after last)
-// ---------------------------------------------------
-// Pinout:
-//   PB1 (pin 6)   -> SWITCH (internal pull-up, active LOW)
-//   PB3 (pin 2)   -> LED_DIGIT (digit flashes, incl. zero)
-//   PB4 (pin 3)   -> LED_SEP   (separator blink)
+/*
+  ==============================================================
+   ATtiny85 + BMP280 Rocket Altitude Logger
+  ==============================================================
+
+   Overview:
+   - Simple rocket flight computer using ATtiny85 and BMP280
+   - Detects launch (>5 m rise), logs altitude at 40 Hz for 6 s
+   - Stores maximum altitude
+   - After flight, altitude is displayed with LEDs:
+       • LED_DIGIT flashes out digits (1–9 = short flashes, 0 = one long flash)
+       • LED_SEP blinks once as a separator between digits
+       • No separator after the last digit
+   - Output triggered by pressing a switch (PB1 LOW, 2 s debounce delay)
+
+   Example readouts:
+     Altitude 120 m → 1 flash, separator, 2 flashes, separator, long flash
+     Altitude 304 m → 3 flashes, separator, long flash, separator, 4 flashes
+     Altitude 7 m   → 7 flashes (no separator at end)
+
+   Power behaviour:
+   - Sleeps between pre-launch altitude samples (1 Hz sampling)
+   - Active at 40 Hz during flight for 6 s only
+   - After flight, stays in deep sleep until switch is pressed
+   - Very low idle current (<10 µA), battery life limited by coin cell shelf life
+
+   --------------------------------------------------------------
+   Pinout (ATtiny85 physical pins):
+   - PB1 (pin 6) : SWITCH (internal pull-up, active LOW)
+   - PB3 (pin 2) : LED_DIGIT (digit flashes, incl. zero as long flash)
+   - PB4 (pin 3) : LED_SEP   (separator blink)
+   - PB0 / PB2   : I²C lines for BMP280 (handled by ATTINY85BMP280 library)
+
+   Timing constants (default):
+   - Normal flash: 20 ms ON, 800 ms OFF
+   - Zero flash: 80 ms ON (4× longer than normal)
+   - Separator: 200 ms ON, then 2000 ms gap before next digit
+
+   --------------------------------------------------------------
+*/
+
 
 #include "ATTINY85BMP280.h"
 #include <avr/sleep.h>
@@ -24,7 +56,7 @@ ATTINY85BMP280 bmp;
 #define FLASH_ON_TIME    20     // LED ON for normal digit flash
 #define FLASH_OFF_TIME   800    // gap between flashes
 #define DIGIT_GAP_TIME   2000    // pause after separator before next digit
-#define ZERO_FLASH_TIME  (FLASH_ON_TIME * 4) // long flash for zero
+#define ZERO_FLASH_TIME  (FLASH_ON_TIME * 40) // long flash for zero
 #define SEPARATOR_TIME   200    // separator ON time
 
 // ==== State tracking ====

@@ -18,19 +18,19 @@ float maxAltitude = 0;
 
 // ===== Functions =====
 void heartbeat() {
-  digitalWrite(LED_ONES, HIGH); delay(100); digitalWrite(LED_ONES, LOW);
-  digitalWrite(LED_TENS, HIGH); delay(100); digitalWrite(LED_TENS, LOW);
-  digitalWrite(LED_HUNDREDS, HIGH); delay(100); digitalWrite(LED_HUNDREDS, LOW);
+  digitalWrite(LED_ONES, HIGH); delay(50); digitalWrite(LED_ONES, LOW);
+  digitalWrite(LED_TENS, HIGH); delay(50); digitalWrite(LED_TENS, LOW);
+  digitalWrite(LED_HUNDREDS, HIGH); delay(50); digitalWrite(LED_HUNDREDS, LOW);
 }
 
 void flashDigit(int pin, int count) {
   for (int i = 0; i < count; i++) {
     digitalWrite(pin, HIGH);
-    delay(200);
+    delay(15);
     digitalWrite(pin, LOW);
-    delay(200);
+    delay(500);
   }
-  delay(600); // spacing between digits
+  delay(800); // spacing between digits
 }
 
 void flashAltitude(int altitude) {
@@ -44,12 +44,12 @@ void flashAltitude(int altitude) {
     for (int i = 0; i < thousands; i++) {
       digitalWrite(LED_HUNDREDS, HIGH);
       digitalWrite(LED_ONES, HIGH);
-      delay(200);
+      delay(15);
       digitalWrite(LED_HUNDREDS, LOW);
       digitalWrite(LED_ONES, LOW);
-      delay(200);
+      delay(500);
     }
-    delay(600); // spacing between thousands and rest
+    delay(800); // spacing between thousands and rest
   }
 
   if (hundreds > 0) flashDigit(LED_HUNDREDS, hundreds);
@@ -107,7 +107,7 @@ void loop() {
     float alt = bmp.getRelativeAltitudeM();
 
     // heartbeat every ~2s
-    if (beatCounter % 2 == 0) {
+    if (beatCounter % 5 == 0) {
       heartbeat();
     }
 
@@ -136,5 +136,5 @@ void loop() {
 
   // ---- Landed: flash altitude then sleep for ~10s ----
   flashAltitude((int)maxAltitude);
-  sleepSeconds(10);
+  sleepSeconds(20);
 }

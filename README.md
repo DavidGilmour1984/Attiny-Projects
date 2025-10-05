@@ -1,6 +1,6 @@
 # Attiny-Projects
 Attiny Projects
-https://www.youtube.com/watch?v=-mV6ETGLIg8
+[https://www.youtube.com/watch?v=-mV6ETGLIg8](https://www.youtube.com/watch?v=sycSdI49hlY&t=710s)
 
 What you need
 

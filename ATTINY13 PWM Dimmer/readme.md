@@ -43,8 +43,6 @@ The device **starts asleep**, wakes only on a deliberate button press, and retur
 
 20% → 40% → 60% → 80% → 100% → wrap to 20%
 
-yaml
-Copy code
 
 - Only one step occurs per press (no bounce or multi-step).
 - **Note:** PB4 is ADC-capable but is currently used as a digital input.

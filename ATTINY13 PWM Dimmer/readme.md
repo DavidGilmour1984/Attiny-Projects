@@ -11,7 +11,8 @@ The device **starts asleep**, wakes only on a deliberate button press, and retur
 
 | Physical Pin | AVR Pin | Function |
 |-------------|--------|----------|
-| 3 | PB4 / ADC2 | Brightness button (digital, active LOW, internal pull-up). *This pin also supports ADC if analogue control is required in future.* |
+| 2 | PB3 / ADC3 | **Optional analogue dimmer input**. PCB is designed for a **10 kΩ potentiometer**. *Not used in current firmware.* |
+| 3 | PB4 / ADC2 | **Digital brightness control button** (active LOW, internal pull-up). Used for dimming in the current firmware. |
 | 5 | PB0 | ON / OFF (sleep / wake) button (active LOW, internal pull-up) |
 | 6 | PB1 | PWM output |
 | 4 | GND | Ground |
@@ -46,7 +47,14 @@ yaml
 Copy code
 
 - Only one step occurs per press (no bounce or multi-step).
-- **Note:** PB4 is ADC-capable and can be repurposed for analogue brightness control if required in future.
+- **Note:** PB4 is ADC-capable but is currently used as a digital input.
+
+---
+
+### Optional Analogue Dimmer (PB3 / ADC3)
+- Physical pin 2 is wired on the PCB for a **10 kΩ potentiometer**.
+- This input is **not used by the current firmware**.
+- Can be enabled in future to replace the step-based brightness control with continuous analogue dimming.
 
 ---
 
@@ -76,12 +84,12 @@ Copy code
 
 ### MOSFET Requirement
 - The PWM output is intended to drive the **gate of an IRL540N logic-level N-channel MOSFET**.
-- The IRL540N must be used to switch the load (e.g. LED strip or lamp), **not driven directly from the ATtiny pin**.
+- The ATtiny13A **must not** drive the load directly.
 - Typical configuration:
-  - ATtiny PB1 → gate (via small series resistor if desired)
+  - PB1 → MOSFET gate (series resistor optional)
   - Source → ground
   - Drain → load → supply
-  - Flyback diode required if driving inductive loads
+  - Flyback diode required for inductive loads
 
 ---
 
@@ -89,18 +97,19 @@ Copy code
 
 - Internal pull-ups are used for all buttons.
 - Buttons connect directly between pin and ground.
-- No external resistors are required for inputs.
+- No external resistors are required for digital inputs.
+- The analogue potentiometer input (PB3) requires standard ADC wiring.
 
 ---
 
 ## Design Characteristics
 
-- No ADC used in current firmware
+- Digital dimming via button (current firmware)
+- Optional analogue dimming hardware supported
 - No hardware timers required
 - Long-press logic prevents accidental activation
 - Deterministic behaviour
 - Very low sleep current
-- Suitable for LED dimming or logic-level load control via external MOSFET
 
 ---
 
@@ -119,7 +128,7 @@ Copy code
 ---
 
 ## Summary
-This firmware provides a **robust, human-intent-driven interface** for a compact dimmer module, with safe MOSFET drive capability, predictable behaviour, and low-power operation.
+This firmware provides a robust, low-power PWM dimmer with latched control, deliberate user interaction, and hardware support for both **digital step dimming** and **future analogue dimming via a 10 kΩ potentiometer**.
 
 
 

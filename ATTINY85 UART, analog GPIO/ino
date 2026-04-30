@@ -46,19 +46,21 @@ void goToSleep() {
   sleep_disable();
 }
 
-// ================= SOFTWARE UART TX =================
+// ================= SOFTWARE UART TX (9600 CALIBRATED) =================
 void txByte(uint8_t b) {
 
+  // start bit
   digitalWrite(TX_PIN, LOW);
-  delayMicroseconds(104);
+  delayMicroseconds(102);
 
   for (uint8_t i = 0; i < 8; i++) {
     digitalWrite(TX_PIN, (b >> i) & 1);
-    delayMicroseconds(104);
+    delayMicroseconds(102);
   }
 
+  // stop bit
   digitalWrite(TX_PIN, HIGH);
-  delayMicroseconds(104);
+  delayMicroseconds(110);
 }
 
 void txString(const char *s) {
@@ -89,7 +91,7 @@ float readVoltage() {
 void sendCSV(uint8_t status, float voltage) {
 
   digitalWrite(RADIO_PWR, HIGH);
-  delay(2000);
+  delay(3000);  // allow radio to stabilise
 
   char buffer[12];
   int v_int = (int)(voltage * 10);
@@ -116,12 +118,15 @@ void sendCSV(uint8_t status, float voltage) {
     delay(300);
   }
 
-  delay(1000);
+  delay(500);
   digitalWrite(RADIO_PWR, LOW);
 }
 
 // ================= SETUP =================
 void setup() {
+
+  // 🔧 CLOCK CALIBRATION FOR 9600
+  OSCCAL = OSCCAL + 10;
 
   pinMode(TX_PIN, OUTPUT);
   digitalWrite(TX_PIN, HIGH);

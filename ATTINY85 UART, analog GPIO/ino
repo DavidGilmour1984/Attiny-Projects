@@ -1,0 +1,156 @@
+#include <avr/sleep.h>
+#include <avr/wdt.h>
+#include <avr/interrupt.h>
+
+// ================= CONFIG =================
+#define TRAP_ID 12
+
+// Pin mapping (Arduino numbering for ATtiny85)
+#define TX_PIN    3   // PB3 (pin 2)
+#define TRAP_PIN  4   // PB4 (pin 3)
+#define VBAT_PIN  A1  // PB2 (pin 7)
+#define RADIO_PWR 1   // PB1 (pin 6)
+
+// Timing
+#define WDT_CYCLES_PER_TX 23   // ~3 minutes (23 × 8s)
+#define TX_RETRIES 3
+
+// ================= GLOBALS =================
+volatile uint8_t wdtCounter = 0;
+
+// ================= WATCHDOG ISR =================
+ISR(WDT_vect) {
+  wdtCounter++;
+}
+
+// ================= WATCHDOG SETUP =================
+void setupWatchdog() {
+
+  cli();
+
+  MCUSR &= ~(1 << WDRF);
+
+  WDTCR |= (1 << WDCE) | (1 << WDE);
+
+  WDTCR = (1 << WDIE) | (1 << WDP3) | (1 << WDP0);
+
+  sei();
+}
+
+// ================= SLEEP =================
+void goToSleep() {
+
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
+  sleep_cpu();
+  sleep_disable();
+}
+
+// ================= SOFTWARE UART TX =================
+void txByte(uint8_t b) {
+
+  digitalWrite(TX_PIN, LOW);
+  delayMicroseconds(104);
+
+  for (uint8_t i = 0; i < 8; i++) {
+    digitalWrite(TX_PIN, (b >> i) & 1);
+    delayMicroseconds(104);
+  }
+
+  digitalWrite(TX_PIN, HIGH);
+  delayMicroseconds(104);
+}
+
+void txString(const char *s) {
+  while (*s) {
+    txByte(*s++);
+  }
+}
+
+// ================= VOLTAGE READ =================
+float readVoltage() {
+
+  ADMUX = (1 << MUX0);   // ADC1 (PB2)
+  ADCSRA |= (1 << ADEN);
+
+  delay(10);
+
+  ADCSRA |= (1 << ADSC);
+  while (ADCSRA & (1 << ADSC));
+
+  uint16_t raw = ADC;
+
+  float voltage = (raw / 1023.0) * 1.1 * 2.0;
+
+  return voltage;
+}
+
+// ================= SEND CSV =================
+void sendCSV(uint8_t status, float voltage) {
+
+  digitalWrite(RADIO_PWR, HIGH);
+  delay(2000);
+
+  char buffer[12];
+  int v_int = (int)(voltage * 10);
+
+  for (int i = 0; i < TX_RETRIES; i++) {
+
+    itoa(TRAP_ID, buffer, 10);
+    txString(buffer);
+    txByte(',');
+
+    itoa(status, buffer, 10);
+    txString(buffer);
+    txByte(',');
+
+    itoa(v_int / 10, buffer, 10);
+    txString(buffer);
+    txByte('.');
+
+    txByte('0' + (v_int % 10));
+
+    txByte('\r');
+    txByte('\n');
+
+    delay(300);
+  }
+
+  delay(1000);
+  digitalWrite(RADIO_PWR, LOW);
+}
+
+// ================= SETUP =================
+void setup() {
+
+  pinMode(TX_PIN, OUTPUT);
+  digitalWrite(TX_PIN, HIGH);
+
+  pinMode(TRAP_PIN, INPUT_PULLUP);
+
+  pinMode(RADIO_PWR, OUTPUT);
+  digitalWrite(RADIO_PWR, LOW);
+
+  setupWatchdog();
+
+  // 🔥 RUN ONCE AT POWER-UP
+  uint8_t status = (digitalRead(TRAP_PIN) == LOW) ? 1 : 0;
+  float voltage = readVoltage();
+  sendCSV(status, voltage);
+}
+
+// ================= LOOP =================
+void loop() {
+
+  if (wdtCounter >= WDT_CYCLES_PER_TX) {
+
+    wdtCounter = 0;
+
+    uint8_t status = (digitalRead(TRAP_PIN) == LOW) ? 1 : 0;
+    float voltage = readVoltage();
+
+    sendCSV(status, voltage);
+  }
+
+  goToSleep();
+}

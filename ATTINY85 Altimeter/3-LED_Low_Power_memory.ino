@@ -1,8 +1,8 @@
 // set clock speed to 1mhz
 // Software I2C on swapped pins: SDA = PB2 (physical pin 7), SCL = PB0 (physical pin 5)
-// Readout trigger: touch physical pin 2 (PB3, tens LED) to VCC, then release
-// Last flight altitude is stored in EEPROM and survives power-off
-// Power cycle (switch off/on) re-arms for a new flight
+// Power-on sequence: flashes the last saved flight altitude, then arms for launch
+// Saved altitude is only overwritten when a new launch is detected
+// After the flight window: permanent deep sleep until power is cycled
 #include <avr/sleep.h>
 #include <avr/wdt.h>
 #include <avr/interrupt.h>
@@ -13,11 +13,10 @@
 #define I2C_SDA_BIT 2   // physical pin 7 (PB2)
 #define I2C_SCL_BIT 0   // physical pin 5 (PB0)
 
-// ===== LED pins (PORTB bit numbers) =====
+// ===== LED pins (Arduino numbering, not physical pins) =====
 #define LED_ONES     1   // physical pin 6 (PB1)
 #define LED_TENS     3   // physical pin 2 (PB3)
 #define LED_HUNDREDS 4   // physical pin 3 (PB4)
-#define TRIGGER_BIT  LED_TENS
 
 // ===== EEPROM layout =====
 #define EE_MAGIC_ADDR ((uint8_t*)0)
@@ -26,7 +25,9 @@
 
 // ===== Flight settings =====
 #define LAUNCH_DROP_PA   60     // ~5 m (about 12 Pa per metre near sea level)
-#define FLIGHT_WINDOW_MS 6000   // sample for 6 s after launch
+#define FLIGHT_WINDOW_MS 12000  // sample for 12 s after launch
+#define SAVE_INTERVAL_MS 1000   // save max altitude to EEPROM every 1 s in flight
+#define HEARTBEAT_WAKES  20     // heartbeat every 20 wakes (~20 s)
 
 // ===== Software I2C (open-drain emulation) =====
 static inline void i2cDelay() { delayMicroseconds(2); }
@@ -199,43 +200,46 @@ private:
 ATTINY85BMP280 bmp;
 
 // ===== State tracking =====
-volatile bool triggerFlag = false;
 bool launched = false;
-bool landed = false;
 unsigned long launchTime = 0;
+unsigned long lastSave = 0;
 float maxAltitude = 0;
+int savedAltitude = -1;
 long baseline16 = 0;   // baseline pressure x16 (slowly follows weather)
 
-// ===== LED control =====
-// LEDs are only driven HIGH or left high-impedance, never driven LOW,
-// so connecting VCC to an LED pin can never short an output.
-void ledOn(uint8_t b)  { PORTB |= (1 << b); DDRB |= (1 << b); }
-void ledOff(uint8_t b) { DDRB &= ~(1 << b); PORTB &= ~(1 << b); }
+// ===== LED functions =====
+void allOff() {
+  digitalWrite(LED_ONES, LOW);
+  digitalWrite(LED_TENS, LOW);
+  digitalWrite(LED_HUNDREDS, LOW);
+}
 
 void bootFlash() {
-  ledOn(LED_ONES);     delay(50); ledOff(LED_ONES);
-  ledOn(LED_TENS);     delay(50); ledOff(LED_TENS);
-  ledOn(LED_HUNDREDS); delay(50); ledOff(LED_HUNDREDS);
+  digitalWrite(LED_ONES, HIGH); delay(50); digitalWrite(LED_ONES, LOW);
+  digitalWrite(LED_TENS, HIGH); delay(50); digitalWrite(LED_TENS, LOW);
+  digitalWrite(LED_HUNDREDS, HIGH); delay(50); digitalWrite(LED_HUNDREDS, LOW);
 }
 
 void heartbeat() {
-  ledOn(LED_ONES); delay(15); ledOff(LED_ONES);
+  digitalWrite(LED_ONES, HIGH); delay(15); digitalWrite(LED_ONES, LOW);
 }
 
 void noDataFlash() {
   for (uint8_t i = 0; i < 3; i++) {
-    ledOn(LED_ONES); ledOn(LED_TENS); ledOn(LED_HUNDREDS);
+    digitalWrite(LED_ONES, HIGH);
+    digitalWrite(LED_TENS, HIGH);
+    digitalWrite(LED_HUNDREDS, HIGH);
     delay(15);
-    ledOff(LED_ONES); ledOff(LED_TENS); ledOff(LED_HUNDREDS);
+    allOff();
     delay(300);
   }
 }
 
-void flashDigit(uint8_t b, int count) {
+void flashDigit(int pin, int count) {
   for (int i = 0; i < count; i++) {
-    ledOn(b);
+    digitalWrite(pin, HIGH);
     delay(15);
-    ledOff(b);
+    digitalWrite(pin, LOW);
     delay(500);
   }
   delay(800); // spacing between digits
@@ -250,11 +254,11 @@ void flashAltitude(int altitude) {
   // Thousands → flash hundreds + ones at the same time
   if (thousands > 0) {
     for (int i = 0; i < thousands; i++) {
-      ledOn(LED_HUNDREDS);
-      ledOn(LED_ONES);
+      digitalWrite(LED_HUNDREDS, HIGH);
+      digitalWrite(LED_ONES, HIGH);
       delay(15);
-      ledOff(LED_HUNDREDS);
-      ledOff(LED_ONES);
+      digitalWrite(LED_HUNDREDS, LOW);
+      digitalWrite(LED_ONES, LOW);
       delay(500);
     }
     delay(800); // spacing between thousands and rest
@@ -268,8 +272,10 @@ void flashAltitude(int altitude) {
 // ===== EEPROM =====
 void saveAltitude(int alt) {
   if (alt < 0) alt = 0;
+  if (alt == savedAltitude) return;      // avoid unnecessary writes
   eeprom_update_word(EE_ALT_ADDR, (uint16_t)alt);
   eeprom_update_byte(EE_MAGIC_ADDR, EE_MAGIC);
+  savedAltitude = alt;
 }
 
 void flashStored() {
@@ -278,41 +284,6 @@ void flashStored() {
     return;
   }
   flashAltitude((int)eeprom_read_word(EE_ALT_ADDR));
-}
-
-// ===== Readout trigger (pin change on PB3) =====
-ISR(PCINT0_vect) {
-  triggerFlag = true;
-}
-
-bool triggerHigh() { return PINB & (1 << TRIGGER_BIT); }
-
-void triggerDisable() {
-  PCMSK &= ~(1 << PCINT3);
-}
-
-void triggerEnable() {
-  ledOff(TRIGGER_BIT);
-  delay(5);
-  GIFR = (1 << PCIF);      // clear any pending pin change
-  triggerFlag = false;
-  PCMSK |= (1 << PCINT3);
-  GIMSK |= (1 << PCIE);
-}
-
-void handleTrigger() {
-  triggerFlag = false;
-  delay(20);
-  if (!triggerHigh()) return;          // ignore noise
-  triggerDisable();
-
-  // wait for release (max 5 s)
-  unsigned long t = millis();
-  while (triggerHigh() && millis() - t < 5000) {}
-  delay(500);
-
-  flashStored();
-  triggerEnable();
 }
 
 // ==== Watchdog ISR (wake from sleep) ====
@@ -337,30 +308,35 @@ void sleepSeconds(byte seconds) {
   }
 }
 
-// ---- Deep sleep until readout trigger (watchdog off) ----
-void sleepUntilTrigger() {
+// ---- Permanent deep sleep: no wake sources, only a power cycle restarts ----
+void sleepForever() {
+  allOff();
   wdt_disable();
+  GIMSK = 0;
+  PCMSK = 0;
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   cli();
-  if (!triggerFlag) {
-    sleep_enable();
-    sei();
-    sleep_cpu();
-    sleep_disable();
-  }
-  sei();
+  sleep_enable();
+  sleep_cpu();
+  while (1) {}
 }
 
 void setup() {
-  ledOff(LED_ONES);
-  ledOff(LED_TENS);
-  ledOff(LED_HUNDREDS);
+  pinMode(LED_ONES, OUTPUT);
+  pinMode(LED_TENS, OUTPUT);
+  pinMode(LED_HUNDREDS, OUTPUT);
+  allOff();
 
   // ---- Power saving ----
   ADCSRA &= ~(1 << ADEN);   // ADC off (large drain in sleep if left on)
   ACSR   |=  (1 << ACD);    // analog comparator off
   power_adc_disable();
   power_usi_disable();      // hardware I2C unused (software I2C)
+
+  // ---- Wake-up sequence: last saved flight altitude ----
+  delay(500);
+  flashStored();
+  delay(1000);
 
   bmp.begin();
 
@@ -374,23 +350,11 @@ void setup() {
   baseline16 = (sum / 20) * 16;
   bmp.setBaselinePressure(sum / 20);
 
-  bootFlash();       // sweep at boot
-  triggerEnable();   // readout available from now on
+  bootFlash();   // sweep = armed and watching for launch
 }
 
 void loop() {
-  // ---- Readout request (any time except in flight) ----
-  if (triggerFlag && !(launched && !landed)) {
-    handleTrigger();
-  }
-
-  // ---- After landing: deep sleep until triggered ----
-  if (landed) {
-    sleepUntilTrigger();
-    return;
-  }
-
-  // ---- Pre-launch ----
+  // ---- Pre-launch (watching) ----
   if (!launched) {
     static uint8_t beatCounter = 0;
 
@@ -402,17 +366,18 @@ void loop() {
     if (base - p > LAUNCH_DROP_PA) {
       launched = true;
       launchTime = millis();
-      triggerDisable();
       bmp.setBaselinePressure(base);
       maxAltitude = bmp.getRelativeAltitudeM();
+      saveAltitude((int)(maxAltitude + 0.5f));   // previous flight overwritten here
+      lastSave = millis();
       return;
     }
 
     // baseline follows slow weather changes (~1 min time constant)
     baseline16 += ((p << 4) - baseline16) >> 6;
 
-    // short heartbeat every ~10 s
-    if (++beatCounter >= 10) {
+    // short heartbeat every ~20 s
+    if (++beatCounter >= HEARTBEAT_WAKES) {
       beatCounter = 0;
       heartbeat();
     }
@@ -421,7 +386,7 @@ void loop() {
     return;
   }
 
-  // ---- In flight: sample at 20Hz for 6s ----
+  // ---- In flight: sample at 20Hz for 12s ----
   if (millis() - launchTime <= FLIGHT_WINDOW_MS) {
     static unsigned long lastSample = 0;
     if (millis() - lastSample >= 50) {
@@ -430,12 +395,16 @@ void loop() {
       if (alt > maxAltitude) maxAltitude = alt;
       lastSample = millis();
     }
+
+    // periodic save so a power loss in flight keeps the best value so far
+    if (millis() - lastSave >= SAVE_INTERVAL_MS) {
+      saveAltitude((int)(maxAltitude + 0.5f));
+      lastSave = millis();
+    }
     return;
   }
 
-  // ---- Landed: save, flash once, then deep sleep ----
-  landed = true;
+  // ---- Flight window over: final save, then sleep until power cycle ----
   saveAltitude((int)(maxAltitude + 0.5f));
-  flashStored();
-  triggerEnable();
+  sleepForever();
 }
